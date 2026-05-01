@@ -41,4 +41,3 @@ assert.deepEqual(buildShiftCurrencySummary(shift, txns, { USD: "525", AUD: "18" 
   { code: "USD", inCount: 1, outCount: 1, totIn: 80, totOut: 20, bal: 525 },
   { code: "AUD", inCount: 1, outCount: 0, totIn: 10, totOut: 0, bal: 18 },
 ]);
-
