@@ -170,6 +170,11 @@ const DEPTS    = ["Front Desk","Bar","Restaurant","Housekeeping","Gift Shop","Sp
 const STAFF    = ["Densal Demoniya","Maria Santos","John Manager","Raj Kumar","Ahmed Salim"];
 const fmt      = n => `USD ${parseFloat(n||0).toFixed(2)}`;
 const nowStr   = () => new Date().toLocaleString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}).replace(",","");
+const moneyNum = v => Number.isFinite(parseFloat(v)) ? parseFloat(v) : 0;
+const ccyAmountForTxn = (txn, code) => {
+  if (code === BASE_CCY) return txn.fxCcy ? 0 : moneyNum(txn.amount);
+  return txn.fxCcy === code ? moneyNum(txn.fxAmt) : 0;
+};
 
 /* ─── SHIFT ID BADGE — small blue chip shown everywhere ──────────────────── */
 const ShiftBadge = ({ id, size="sm" }) => {
@@ -588,10 +593,19 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
 
   const selected    = drawers.find(d => String(d.id)===sel);
   const activeShift = selected ? shifts.find(s => s.id===selected.currentShift) : null;
-  const sysBal      = activeShift ? (activeShift.openingBal + (activeShift.cashIn||0) - (activeShift.cashOut||0)) : 0;
+  const activeShiftTxns = (txns||[]).filter(t => t.shiftId===activeShift?.id);
+  const openingByCodeForActive = activeShift?.openingCcyBals || selected?.ccyBalances || { USD: activeShift?.openingBal || 0 };
+  const openAmtForActive = code => parseFloat(openingByCodeForActive[code] || 0);
+  const activeCcyCodes = [...new Set([
+    "USD",
+    ...Object.keys(openingByCodeForActive).filter(code => code !== "USD"),
+    ...activeShiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy)
+  ])];
+  const sysBal      = activeShift ? openAmtForActive("USD") + activeShiftTxns.reduce((a,t)=>a+ccyAmountForTxn(t,"USD"),0) : 0;
   const usdCounted  = parseFloat(ccyCounts["USD"] || 0);
   const mismatch    = ccyCounts["USD"] !== undefined && usdCounted !== sysBal;
   const variance    = mismatch ? usdCounted - sysBal : 0;
+  const cashDropFor = (code, value) => code==="USD" ? (value||0) : 0;
 
   // All closed shifts = our "Cashier Reports"
   const closedShifts = shifts.filter(s => s.status==="Closed");
@@ -607,12 +621,14 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   });
 
   const handleClose = () => {
-    if (!sel) return;
+    if (!sel || !selected || !activeShift) return;
     const closedAt   = nowStr();
     const closingBal = ccyCounts["USD"] !== undefined ? usdCounted : sysBal;
-    const shiftTxns  = (txns||[]).filter(t => t.shiftId===selected?.currentShift);
+    const shiftTxns  = activeShiftTxns;
     const usdRows    = shiftTxns.filter(t=>!t.fxCcy);
-    const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
+    const openingByCode = openingByCodeForActive;
+    const fxCodes    = activeCcyCodes.filter(code => code !== "USD");
+    const openAmt = code => parseFloat(openingByCode[code] || 0);
     const ccySummary = [
       { code:"USD",
         inCount:  usdRows.filter(t=>t.amount>0).length,
@@ -626,16 +642,21 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
         const outR = rows.filter(t=>(t.fxAmt||0)<0);
         const totIn  = inR.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0);
         const totOut = outR.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0);
-        return { code, inCount:inR.length, outCount:outR.length, totIn, totOut, bal:totIn-totOut };
+        const counted = ccyCounts[code] !== undefined ? parseFloat(ccyCounts[code] || 0) : openAmt(code) + totIn - totOut;
+        return { code, inCount:inR.length, outCount:outR.length, totIn, totOut, bal:counted };
       })
     ];
     const closeDrop = parseFloat(drop||0);
+    const endingCcyBalances = Object.fromEntries(
+      ccySummary.map(cs => [cs.code, cs.bal - cashDropFor(cs.code, closeDrop)])
+    );
+    const endingBal = endingCcyBalances.USD ?? (closingBal - closeDrop);
     setShifts(p => p.map(s => s.id===selected.currentShift
       ? { ...s, closedAt, closingBal, status:"Closed", variance, ccySummary,
           cashDrop:closeDrop, closeNotes:notes, openNotes:s.openNotes||"" }
       : s));
     setDrawers(p => p.map(d => d.id===selected.id
-      ? { ...d, inUseBy:null, currentShift:null, lastClosed:closedAt, balance:closingBal }
+      ? { ...d, inUseBy:null, currentShift:null, lastClosed:closedAt, balance:endingBal, ccyBalances:endingCcyBalances }
       : d));
     setStep(0); setPanelOpen(false);
     setCcyCounts({}); setDrop(""); setNotes("");
@@ -712,8 +733,8 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                     { label:"Cash Paid Out",                  count:cs.outCount, amount:`${cs.code} ${cs.totOut.toFixed(2)}`,bold:false },
                     { label:"Shift End Overage / Shortage",   count:"",          amount:`${cs.code} 0.00`,                   bold:false },
                     { label:"Drawer Balance",                 count:"",          amount:`${cs.code} ${cs.bal.toFixed(2)}`,   bold:true  },
-                    { label:"Cash Drop",                      count:"",          amount:`${cs.code} ${(s.cashDrop||0).toFixed(2)}`, bold:false },
-                    { label:"Ending Balance",                 count:"",          amount:`${cs.code} ${(cs.bal-(s.cashDrop||0)).toFixed(2)}`, bold:true },
+                    { label:"Cash Drop",                      count:"",          amount:`${cs.code} ${cashDropFor(cs.code, s.cashDrop).toFixed(2)}`, bold:false },
+                    { label:"Ending Balance",                 count:"",          amount:`${cs.code} ${(cs.bal-cashDropFor(cs.code, s.cashDrop)).toFixed(2)}`, bold:true },
                   ].map((row,i) => (
                     <tr key={i} style={{ borderBottom:`1px solid ${T.rowBorder}`, background:row.bold?"#EFF6FF":"" }}>
                       <td style={{ padding:"9px 16px", fontWeight:row.bold?700:400, color:row.bold?T.txt:T.txtMid }}>{row.label}</td>
@@ -904,7 +925,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                     ? s.ccySummary.map(cs=>`${cs.code} ${cs.totIn.toFixed(2)}`).join("\n")
                     : `USD ${(s.cashIn||0).toFixed(2)}`;
                   const endingBal = s.ccySummary
-                    ? s.ccySummary.map(cs=>`${cs.code} ${(cs.bal-(s.cashDrop||0)).toFixed(2)}`).join("\n")
+                    ? s.ccySummary.map(cs=>`${cs.code} ${(cs.bal-cashDropFor(cs.code, s.cashDrop)).toFixed(2)}`).join("\n")
                     : `USD ${(s.closingBal||0).toFixed(2)}`;
                   const startBal = s.ccySummary
                     ? s.ccySummary.map(cs=>`${cs.code} 0.00`).join("\n")
@@ -929,7 +950,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                       <td style={{ padding:"10px 10px", textAlign:"right", color:T.txt, fontWeight:600 }}>{mlPrint(endingBal)}</td>
                       <td style={{ padding:"10px 10px", textAlign:"right", color:T.txt }}>{mlPrint(amtReceived)}</td>
                       <td style={{ padding:"10px 10px", textAlign:"right", color:T.txtMid }}>
-                        {mlPrint(s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${(s.cashDrop||0).toFixed(2)}`).join("\n") : `USD ${(s.cashDrop||0).toFixed(2)}`)}
+                        {mlPrint(s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${cashDropFor(cs.code, s.cashDrop).toFixed(2)}`).join("\n") : `USD ${(s.cashDrop||0).toFixed(2)}`)}
                       </td>
                       <td style={{ padding:"10px 10px", color:T.txtMid, fontSize:11 }}>{s.openNotes||""}</td>
                       <td style={{ padding:"10px 10px", color:T.txtMid, fontSize:11 }}>{s.closeNotes||""}</td>
@@ -988,9 +1009,9 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                   <tbody>
                     {filteredShifts.map(s => {
                       const amtR    = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${cs.totIn.toFixed(2)}`).join("\n") : `USD ${(s.cashIn||0).toFixed(2)}`;
-                      const endB    = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${(cs.bal-(s.cashDrop||0)).toFixed(2)}`).join("\n") : `USD ${(s.closingBal||0).toFixed(2)}`;
+                      const endB    = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${(cs.bal-cashDropFor(cs.code, s.cashDrop)).toFixed(2)}`).join("\n") : `USD ${(s.closingBal||0).toFixed(2)}`;
                       const startB  = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} 0.00`).join("\n") : "USD 0.00";
-                      const dropB   = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${(s.cashDrop||0).toFixed(2)}`).join("\n") : `USD ${(s.cashDrop||0).toFixed(2)}`;
+                      const dropB   = s.ccySummary ? s.ccySummary.map(cs=>`${cs.code} ${cashDropFor(cs.code, s.cashDrop).toFixed(2)}`).join("\n") : `USD ${(s.cashDrop||0).toFixed(2)}`;
                       return (
                         <tr key={s.id} style={{ borderBottom:"1px solid #E5E7EB", verticalAlign:"top" }}>
                           <td style={{ padding:"5px 8px" }}>{s.id}</td>
@@ -1056,12 +1077,11 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
             </div>
           )}
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===activeShift?.id);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
+            const shiftTxns  = activeShiftTxns;
+            const drawerCcys = activeCcyCodes;
             const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
               const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
+              return [code, openAmtForActive(code) + rows.reduce((a,t)=>a+ccyAmountForTxn(t,code),0)];
             }))};
             return drawerCcys.map(code => (
               <div key={code} style={{ marginBottom:14 }}>
@@ -1086,12 +1106,11 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
 
         {step===1 && (<>
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===activeShift?.id);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
+            const shiftTxns  = activeShiftTxns;
+            const drawerCcys = activeCcyCodes;
             const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
               const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
+              return [code, openAmtForActive(code) + rows.reduce((a,t)=>a+ccyAmountForTxn(t,code),0)];
             }))};
             return (
               <>
@@ -1127,12 +1146,11 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
             <div style={{ cursor:"pointer", color:T.txtMid }}>🖨</div>
           </div>
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===selected?.currentShift);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
+            const shiftTxns  = activeShiftTxns;
+            const drawerCcys = activeCcyCodes;
             const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
               const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
+              return [code, openAmtForActive(code) + rows.reduce((a,t)=>a+ccyAmountForTxn(t,code),0)];
             }))};
             return drawerCcys.map((code, ci) => {
               const isUSD    = code==="USD";
