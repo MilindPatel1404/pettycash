@@ -62,3 +62,14 @@ test("summarizeShiftCash is safe before a drawer is selected", () => {
   assert.deepEqual(result.summary.map(row => row.code), ["USD"]);
   assert.equal(result.usdSystemBalance, 0);
 });
+
+test("summarizeShiftCash trusts explicit shift USD opening over drawer snapshot", () => {
+  const result = summarizeShiftCash({
+    shift: { id: "SH-2", openingBal: 800 },
+    drawer: { balance: 300, ccyBalances: { USD: 300, AUD: 10 } },
+    txns: [{ shiftId: "SH-2", amount: 25 }],
+  });
+
+  assert.equal(result.usdSystemBalance, 825);
+  assert.equal(result.summary.find(row => row.code === "AUD").sysBal, 10);
+});

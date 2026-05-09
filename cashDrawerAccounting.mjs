@@ -18,7 +18,9 @@ export const getOpeningCcyBalances = (shift = {}, drawer = {}) => {
     balances[code] = roundMoney(value);
   });
 
-  if (!hasValue(balances, "USD")) {
+  if (shift.openingBal !== undefined && shift.openingBal !== null) {
+    balances.USD = roundMoney(shift.openingBal);
+  } else if (!hasValue(balances, "USD")) {
     balances.USD = roundMoney(shift.openingBal ?? drawer.balance ?? 0);
   }
 
