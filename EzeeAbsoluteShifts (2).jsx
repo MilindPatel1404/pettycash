@@ -586,8 +586,14 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   const [filterReport,setFilterReport]= useState("");
   const [searchTxn,   setSearchTxn]   = useState("");
 
-  const selected    = drawers.find(d => String(d.id)===sel);
-  const activeShift = selected ? shifts.find(s => s.id===selected.currentShift) : null;
+  const closeableDrawers = drawers.filter(d => d.inUseBy && d.currentShift);
+  const openCloseWizard = () => {
+    setSel(String(closeableDrawers[0]?.id||""));
+    setStep(0); setCcyCounts({}); setDrop(""); setNotes("");
+    setPanelOpen(true);
+  };
+  const selected    = closeableDrawers.find(d => String(d.id)===sel);
+  const activeShift = selected ? shifts.find(s => s.id===selected.currentShift && s.status==="Open") : null;
   const sysBal      = activeShift ? (activeShift.openingBal + (activeShift.cashIn||0) - (activeShift.cashOut||0)) : 0;
   const usdCounted  = parseFloat(ccyCounts["USD"] || 0);
   const mismatch    = ccyCounts["USD"] !== undefined && usdCounted !== sysBal;
@@ -607,10 +613,10 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   });
 
   const handleClose = () => {
-    if (!sel) return;
+    if (!selected || !activeShift) return;
     const closedAt   = nowStr();
     const closingBal = ccyCounts["USD"] !== undefined ? usdCounted : sysBal;
-    const shiftTxns  = (txns||[]).filter(t => t.shiftId===selected?.currentShift);
+    const shiftTxns  = (txns||[]).filter(t => t.shiftId===activeShift.id);
     const usdRows    = shiftTxns.filter(t=>!t.fxCcy);
     const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
     const ccySummary = [
@@ -630,7 +636,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
       })
     ];
     const closeDrop = parseFloat(drop||0);
-    setShifts(p => p.map(s => s.id===selected.currentShift
+    setShifts(p => p.map(s => s.id===activeShift.id
       ? { ...s, closedAt, closingBal, status:"Closed", variance, ccySummary,
           cashDrop:closeDrop, closeNotes:notes, openNotes:s.openNotes||"" }
       : s));
@@ -812,7 +818,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
           <div style={{ display:"flex", gap:8 }}>
             <button style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:"#2E7D32", color:"#fff", border:"none", borderRadius:4, fontSize:12, fontWeight:600, cursor:"pointer" }}>📧 Email</button>
             <button onClick={()=>setExportOpen(true)} style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 14px", background:T.blue, color:"#fff", border:"none", borderRadius:4, fontSize:12, fontWeight:600, cursor:"pointer" }}>{IC.export} Export To ▾</button>
-            <button onClick={() => { setStep(0); setCcyCounts({}); setDrop(""); setNotes(""); setPanelOpen(true); }}
+            <button onClick={openCloseWizard}
               style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 16px", background:T.blue, color:"#fff", border:"none", borderRadius:4, fontSize:13, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
               Close Cash Drawer
             </button>
@@ -1039,7 +1045,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
         {step===0 && (<>
           <Fld label="Select Drawer">
             <Sel value={sel} onChange={e => { setSel(e.target.value); setCcyCounts({}); }}>
-              {drawers.filter(d => d.inUseBy).map(d => <option key={d.id} value={String(d.id)}>{d.name} (In use by {d.inUseBy})</option>)}
+              {closeableDrawers.map(d => <option key={d.id} value={String(d.id)}>{d.name} (In use by {d.inUseBy})</option>)}
             </Sel>
           </Fld>
           {activeShift && (
