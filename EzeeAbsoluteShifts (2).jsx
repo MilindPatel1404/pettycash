@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { roundMoney, summarizeShiftCash } from "./cashDrawerAccounting.mjs";
+import { isDrawerInUse } from "./cashDrawerGuards.mjs";
 
 /* ─── DESIGN TOKENS — exact eZee Absolute from screenshots ─────────────── */
 const T = {
@@ -375,6 +376,13 @@ function CreateModifyPage({ drawers, setDrawers }) {
     setPanelOpen(false);
   };
   const toggleStatus = id => setDrawers(p => p.map(d => d.id===id ? {...d, status:d.status==="Active"?"Inactive":"Active"} : d));
+  const deleteDrawer = drawer => {
+    if (isDrawerInUse(drawer)) {
+      window.alert?.("Close the active shift before deleting this cash drawer.");
+      return;
+    }
+    setDrawers(p => p.filter(x => x.id!==drawer.id));
+  };
 
   return (
     <>
@@ -416,7 +424,13 @@ function CreateModifyPage({ drawers, setDrawers }) {
                 <td style={{ padding:"11px 14px" }}>
                   <div style={{ display:"flex", gap:8 }}>
                     <button onClick={() => openEdit(d)} style={{ background:"none", border:"none", cursor:"pointer", color:T.txtLight, padding:2, display:"flex" }}>{IC.edit}</button>
-                    <button onClick={() => setDrawers(p => p.filter(x => x.id!==d.id))} style={{ background:"none", border:"none", cursor:"pointer", color:T.txtLight, padding:2, display:"flex" }}>{IC.trash}</button>
+                    <button
+                      onClick={() => deleteDrawer(d)}
+                      title={isDrawerInUse(d) ? "Close the active shift before deleting this drawer" : "Delete cash drawer"}
+                      style={{ background:"none", border:"none", cursor:isDrawerInUse(d)?"not-allowed":"pointer", color:isDrawerInUse(d)?T.txtXlight:T.txtLight, padding:2, display:"flex" }}
+                    >
+                      {IC.trash}
+                    </button>
                   </div>
                 </td>
               </tr>
