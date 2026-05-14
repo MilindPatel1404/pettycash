@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { buildDrawerCloseAccounting } from "./cashDrawerAccounting.mjs";
 
 /* ─── DESIGN TOKENS — exact eZee Absolute from screenshots ─────────────── */
 const T = {
@@ -588,10 +589,13 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
 
   const selected    = drawers.find(d => String(d.id)===sel);
   const activeShift = selected ? shifts.find(s => s.id===selected.currentShift) : null;
-  const sysBal      = activeShift ? (activeShift.openingBal + (activeShift.cashIn||0) - (activeShift.cashOut||0)) : 0;
-  const usdCounted  = parseFloat(ccyCounts["USD"] || 0);
-  const mismatch    = ccyCounts["USD"] !== undefined && usdCounted !== sysBal;
-  const variance    = mismatch ? usdCounted - sysBal : 0;
+  const closeTxns   = activeShift ? (txns||[]).filter(t => t.shiftId===activeShift.id) : [];
+  const closeAccounting = activeShift
+    ? buildDrawerCloseAccounting({ shift:activeShift, drawer:selected, txns:closeTxns, counts:ccyCounts, cashDrop:drop })
+    : null;
+  const sysBal      = closeAccounting?.systemBalances?.USD || 0;
+  const variance    = closeAccounting?.variance || 0;
+  const mismatch    = ccyCounts["USD"] !== undefined && variance !== 0;
 
   // All closed shifts = our "Cashier Reports"
   const closedShifts = shifts.filter(s => s.status==="Closed");
@@ -607,35 +611,26 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   });
 
   const handleClose = () => {
-    if (!sel) return;
+    if (!selected || !activeShift) return;
     const closedAt   = nowStr();
-    const closingBal = ccyCounts["USD"] !== undefined ? usdCounted : sysBal;
-    const shiftTxns  = (txns||[]).filter(t => t.shiftId===selected?.currentShift);
-    const usdRows    = shiftTxns.filter(t=>!t.fxCcy);
-    const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-    const ccySummary = [
-      { code:"USD",
-        inCount:  usdRows.filter(t=>t.amount>0).length,
-        outCount: usdRows.filter(t=>t.amount<0).length,
-        totIn:    usdRows.filter(t=>t.amount>0).reduce((a,t)=>a+t.amount,0),
-        totOut:   Math.abs(usdRows.filter(t=>t.amount<0).reduce((a,t)=>a+t.amount,0)),
-        bal:      closingBal },
-      ...fxCodes.map(code => {
-        const rows = shiftTxns.filter(t=>t.fxCcy===code);
-        const inR  = rows.filter(t=>(t.fxAmt||0)>0);
-        const outR = rows.filter(t=>(t.fxAmt||0)<0);
-        const totIn  = inR.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0);
-        const totOut = outR.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0);
-        return { code, inCount:inR.length, outCount:outR.length, totIn, totOut, bal:totIn-totOut };
-      })
-    ];
     const closeDrop = parseFloat(drop||0);
+    const accounting = buildDrawerCloseAccounting({
+      shift:activeShift,
+      drawer:selected,
+      txns:closeTxns,
+      counts:ccyCounts,
+      cashDrop:closeDrop,
+    });
     setShifts(p => p.map(s => s.id===selected.currentShift
-      ? { ...s, closedAt, closingBal, status:"Closed", variance, ccySummary,
+      ? { ...s, closedAt, closingBal:accounting.closingBal, status:"Closed",
+          variance:accounting.variance, ccySummary:accounting.ccySummary,
+          cashIn:accounting.cashIn, cashOut:accounting.cashOut,
           cashDrop:closeDrop, closeNotes:notes, openNotes:s.openNotes||"" }
       : s));
     setDrawers(p => p.map(d => d.id===selected.id
-      ? { ...d, inUseBy:null, currentShift:null, lastClosed:closedAt, balance:closingBal }
+      ? { ...d, inUseBy:null, currentShift:null, lastClosed:closedAt,
+          balance:accounting.drawerBalances.USD ?? accounting.closingBal,
+          ccyBalances:accounting.drawerBalances }
       : d));
     setStep(0); setPanelOpen(false);
     setCcyCounts({}); setDrop(""); setNotes("");
@@ -1056,13 +1051,8 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
             </div>
           )}
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===activeShift?.id);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
-            const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
-              const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
-            }))};
+            const drawerCcys = closeAccounting?.currencies || ["USD"];
+            const sysByCode  = closeAccounting?.systemBalances || { USD:sysBal };
             return drawerCcys.map(code => (
               <div key={code} style={{ marginBottom:14 }}>
                 <R2>
@@ -1073,7 +1063,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                   </Fld>
                   <Fld label="System Balance">
                     <div style={{ padding:"8px 12px", border:`1px solid ${T.inputBdr}`, borderRadius:4, fontSize:13, color:T.txtMid, background:"#FAFAFA" }}>
-                      {code} {sysByCode[code].toFixed(2)}
+                      {code} {(sysByCode[code]||0).toFixed(2)}
                     </div>
                   </Fld>
                 </R2>
@@ -1086,13 +1076,9 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
 
         {step===1 && (<>
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===activeShift?.id);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
-            const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
-              const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
-            }))};
+            const drawerCcys = closeAccounting?.currencies || ["USD"];
+            const sysByCode  = closeAccounting?.systemBalances || { USD:sysBal };
+            const countedByCode = closeAccounting?.closingBalances || {};
             return (
               <>
                 <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:6 }}>
@@ -1101,7 +1087,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                   ))}
                 </div>
                 {drawerCcys.map(code => {
-                  const drawerBal = parseFloat(ccyCounts[code]||sysByCode[code]||0);
+                  const drawerBal = countedByCode[code] ?? sysByCode[code] ?? 0;
                   const cashDrop  = code==="USD" ? parseFloat(drop||0) : 0;
                   const endingBal = drawerBal - cashDrop;
                   return (
@@ -1127,29 +1113,18 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
             <div style={{ cursor:"pointer", color:T.txtMid }}>🖨</div>
           </div>
           {(() => {
-            const shiftTxns  = (txns||[]).filter(t => t.shiftId===selected?.currentShift);
-            const fxCodes    = [...new Set(shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy))];
-            const drawerCcys = ["USD", ...fxCodes];
-            const sysByCode  = { USD: sysBal, ...Object.fromEntries(fxCodes.map(code => {
-              const rows = shiftTxns.filter(t=>t.fxCcy===code);
-              return [code, rows.reduce((a,t)=>a+Math.abs(t.fxAmt||0),0)];
-            }))};
-            return drawerCcys.map((code, ci) => {
-              const isUSD    = code==="USD";
-              const rows     = isUSD ? shiftTxns.filter(t=>!t.fxCcy) : shiftTxns.filter(t=>t.fxCcy===code);
-              const getAmt   = t => isUSD ? t.amount : (t.fxAmt||0);
-              const inCount  = rows.filter(t=>getAmt(t)>0).length;
-              const outCount = rows.filter(t=>getAmt(t)<0).length;
-              const totIn    = rows.filter(t=>getAmt(t)>0).reduce((a,t)=>a+Math.abs(getAmt(t)),0);
-              const totOut   = rows.filter(t=>getAmt(t)<0).reduce((a,t)=>a+Math.abs(getAmt(t)),0);
-              const drawerBal = parseFloat(ccyCounts[code]||sysByCode[code]||0);
+            const summaries = closeAccounting?.ccySummary || [];
+            return summaries.map((summary, ci) => {
+              const code = summary.code;
+              const isUSD = code==="USD";
+              const drawerBal = closeAccounting?.closingBalances?.[code] ?? summary.bal;
               const cashDrop  = isUSD ? parseFloat(drop||0) : 0;
-              const endingBal = drawerBal - cashDrop;
+              const endingBal = closeAccounting?.drawerBalances?.[code] ?? (drawerBal - cashDrop);
               const rows2 = [
                 { label:"Starting Balance",              count:"",       amount:`${code} 0.00`,               bold:true  },
                 { label:"Shift Start Overage / Shortage",count:"",       amount:`${code} 0.00`,               bold:false },
-                { label:"Cash Received",                 count:inCount,  amount:`${code} ${totIn.toFixed(2)}`,bold:false },
-                { label:"Cash Paid Out",                 count:outCount, amount:`${code} ${totOut.toFixed(2)}`,bold:false},
+                { label:"Cash Received",                 count:summary.inCount,  amount:`${code} ${summary.totIn.toFixed(2)}`,bold:false },
+                { label:"Cash Paid Out",                 count:summary.outCount, amount:`${code} ${summary.totOut.toFixed(2)}`,bold:false},
                 { label:"Shift End Overage / Shortage",  count:"",       amount:`${code} 0.00`,               bold:false },
                 { label:"Drawer Balance",                count:"",       amount:`${code} ${drawerBal.toFixed(2)}`, bold:true },
                 { label:"Cash Drop",                     count:"",       amount:`${code} ${cashDrop.toFixed(2)}`,  bold:false },
@@ -1175,7 +1150,7 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                       ))}
                     </tbody>
                   </table>
-                  {ci < drawerCcys.length-1 && <div style={{ height:10 }}/>}
+                  {ci < summaries.length-1 && <div style={{ height:10 }}/>}
                 </div>
               );
             });
