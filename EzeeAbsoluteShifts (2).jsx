@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { resolvePettyCashShiftId } from "./pettyCashShift.mjs";
 
 /* ─── DESIGN TOKENS — exact eZee Absolute from screenshots ─────────────── */
 const T = {
@@ -1638,7 +1639,7 @@ function PettyCashPage({ drawers, shifts }) {
   const live = detail ? funds.find(f => f.id===detail.id)||detail : null;
 
   /* ── helpers ── */
-  const activeShiftId = () => shifts.find(s=>s.status==="Open")?.id || "SH-MANUAL";
+  const shiftIdForFund = fund => resolvePettyCashShiftId({ fund, drawers, shifts });
 
   const saveCreate = () => {
     if (!ff.name.trim()||!ff.openingAmt) return;
@@ -1648,7 +1649,7 @@ function PettyCashPage({ drawers, shifts }) {
       currentBalance:parseFloat(ff.openingAmt),
       replenishAt:parseFloat(ff.replenishAt||100),
       transactions:[{
-        id:`PC-R${Date.now()}`, shiftId:activeShiftId(), date:nowStr(),
+        id:`PC-R${Date.now()}`, shiftId:shiftIdForFund(ff), date:nowStr(),
         type:"in", amount:parseFloat(ff.openingAmt),
         desc:"Initial fund opening", voucherRef:"", by:"John Manager"
       }]
@@ -1661,7 +1662,7 @@ function PettyCashPage({ drawers, shifts }) {
     const amt = parseFloat(pf.amount);
     const txn = {
       id:`PC-${String(Math.floor(Math.random()*89999)+10000)}`,
-      shiftId:activeShiftId(), date:nowStr(),
+      shiftId:shiftIdForFund(live), date:nowStr(),
       type:"out", amount:amt,
       voucherRef:pf.voucherRef,
       desc:pf.note||`Paid — ${pf.voucherRef}`,
@@ -1676,7 +1677,7 @@ function PettyCashPage({ drawers, shifts }) {
     const amt = parseFloat(rf.amount);
     const txn = {
       id:`PC-R${String(Math.floor(Math.random()*899)+100)}`,
-      shiftId:activeShiftId(), date:nowStr(),
+      shiftId:shiftIdForFund(live), date:nowStr(),
       type:"in", amount:amt,
       voucherRef:"", desc:rf.note||"Fund replenishment",
       by:"John Manager"
