@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { parsePositiveNumber } from "./moneyInput.mjs";
 
 /* ─── DESIGN TOKENS — exact eZee Absolute from screenshots ─────────────── */
 const T = {
@@ -1215,8 +1216,13 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
   const [fxRate,  setFxRate]  = useState("");
 
   const selCcyObj = CURRENCIES.find(c => c.code===ccy) || CURRENCIES[0];
-  const useRate   = ccy==="USD" ? 1 : (parseFloat(fxRate)||selCcyObj.defaultRate);
-  const usdAmt    = ccy==="USD" ? parseFloat(amt||0) : toUSD(amt, useRate);
+  const enteredAmt = parsePositiveNumber(amt);
+  const enteredRate = parsePositiveNumber(fxRate);
+  const rateProvided = String(fxRate).trim() !== "";
+  const rateValid = ccy==="USD" || !rateProvided || enteredRate !== null;
+  const useRate   = ccy==="USD" ? 1 : (enteredRate ?? selCcyObj.defaultRate);
+  const usdAmt    = enteredAmt === null ? 0 : (ccy==="USD" ? enteredAmt : toUSD(enteredAmt, useRate));
+  const canSaveCashMovement = enteredAmt !== null && rateValid;
 
   const selD        = drawers.find(d => String(d.id)===sel);
   const activeShift = selD ? shifts.find(s => s.id===selD.currentShift) : null;
@@ -1258,12 +1264,13 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
   });
 
   const buildTxn = (sign) => {
+    if (!canSaveCashMovement) return null;
     const base = { id:`TXN-${Date.now()}`, shiftId:selD?.currentShift||"", date:nowStr(), acct:"", name:"Manual", surname:"", room:"", notes:note||(sign>0?"Cash Added":"Cash Removed"), ccy:"USD", amount:sign*usdAmt, by:"John Manager" };
-    if (ccy !== "USD") { base.fxCcy=ccy; base.fxAmt=sign*parseFloat(amt); base.fxRate=useRate; base.fxSymbol=selCcyObj.symbol; }
+    if (ccy !== "USD") { base.fxCcy=ccy; base.fxAmt=sign*enteredAmt; base.fxRate=useRate; base.fxSymbol=selCcyObj.symbol; }
     return base;
   };
-  const doAdd = () => { if(!amt) return; setTxns(p=>[buildTxn(1),...p]); setAmt(""); setNote(""); setCcy("USD"); setFxRate(""); setAddOpen(false); };
-  const doRem = () => { if(!amt) return; setTxns(p=>[buildTxn(-1),...p]); setAmt(""); setNote(""); setCcy("USD"); setFxRate(""); setRemOpen(false); };
+  const doAdd = () => { const txn = buildTxn(1); if(!txn) return; setTxns(p=>[txn,...p]); setAmt(""); setNote(""); setCcy("USD"); setFxRate(""); setAddOpen(false); };
+  const doRem = () => { const txn = buildTxn(-1); if(!txn) return; setTxns(p=>[txn,...p]); setAmt(""); setNote(""); setCcy("USD"); setFxRate(""); setRemOpen(false); };
 
   // ── CASHIER REPORT — inline modal (popup blocker safe) ──
   const [reportOpen, setReportOpen] = useState(false);
@@ -1460,7 +1467,7 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
       {[{open:addOpen,onClose:()=>{setAddOpen(false);setCcy("USD");setFxRate("");},onSave:doAdd,title:"Add Cash",label:"Add Cash"},
         {open:remOpen,onClose:()=>{setRemOpen(false);setCcy("USD");setFxRate("");},onSave:doRem,title:"Remove Cash",label:"Remove Cash"}
       ].map(({open,onClose,onSave,title,label}) => (
-        <DrawerPanel key={title} open={open} onClose={onClose} title={title} onSave={onSave} saveLabel={label} saveDisabled={!amt}>
+        <DrawerPanel key={title} open={open} onClose={onClose} title={title} onSave={onSave} saveLabel={label} saveDisabled={!canSaveCashMovement}>
           <Fld label="Currency Received" hint="Currency the guest is physically handing over">
             <Sel value={ccy} onChange={e=>{setCcy(e.target.value);setFxRate("");}}>
               {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.code} — {c.name} ({c.symbol})</option>)}
@@ -1477,12 +1484,12 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
               <Fld label={`Conversion Rate (1 USD = ? ${ccy})`} hint={`Default: ${selCcyObj.defaultRate}`}>
                 <Inp value={fxRate} onChange={e=>setFxRate(e.target.value)} placeholder={String(selCcyObj.defaultRate)} type="number"/>
               </Fld>
-              {amt && (
+              {amt && rateValid && enteredAmt !== null && (
                 <div style={{ background:T.shiftBg, border:`1px solid ${T.shiftBdr}`, borderRadius:6, padding:"12px 14px", marginBottom:14 }}>
                   <div style={{ fontSize:11, fontWeight:600, color:T.shiftColor, marginBottom:8 }}>Conversion Preview</div>
                   <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
                     <span style={{ fontSize:12, color:T.txtMid }}>Received:</span>
-                    <span style={{ fontWeight:700, color:"#C2410C" }}>{ccy} {parseFloat(amt||0).toFixed(2)}</span>
+                    <span style={{ fontWeight:700, color:"#C2410C" }}>{ccy} {enteredAmt.toFixed(2)}</span>
                   </div>
                   <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
                     <span style={{ fontSize:12, color:T.txtMid }}>Rate:</span>
@@ -1493,6 +1500,9 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
                     <span style={{ fontWeight:800, color:T.blue, fontSize:15 }}>${usdAmt.toFixed(2)}</span>
                   </div>
                 </div>
+              )}
+              {rateProvided && !rateValid && (
+                <Alert type="warn">Enter a positive conversion rate before posting this cash movement.</Alert>
               )}
             </>
           )}
@@ -1636,20 +1646,23 @@ function PettyCashPage({ drawers, shifts }) {
   const [rf, setRF] = useState({ amount:"", note:"" });
 
   const live = detail ? funds.find(f => f.id===detail.id)||detail : null;
+  const openingAmount = parsePositiveNumber(ff.openingAmt);
+  const payoutAmount = parsePositiveNumber(pf.amount);
+  const replenishAmount = parsePositiveNumber(rf.amount);
 
   /* ── helpers ── */
   const activeShiftId = () => shifts.find(s=>s.status==="Open")?.id || "SH-MANUAL";
 
   const saveCreate = () => {
-    if (!ff.name.trim()||!ff.openingAmt) return;
+    if (!ff.name.trim() || openingAmount === null) return;
     setFunds(p => [...p, {
       ...ff, id:`pf${Date.now()}`,
-      openingAmt:parseFloat(ff.openingAmt),
-      currentBalance:parseFloat(ff.openingAmt),
+      openingAmt:openingAmount,
+      currentBalance:openingAmount,
       replenishAt:parseFloat(ff.replenishAt||100),
       transactions:[{
         id:`PC-R${Date.now()}`, shiftId:activeShiftId(), date:nowStr(),
-        type:"in", amount:parseFloat(ff.openingAmt),
+        type:"in", amount:openingAmount,
         desc:"Initial fund opening", voucherRef:"", by:"John Manager"
       }]
     }]);
@@ -1657,8 +1670,8 @@ function PettyCashPage({ drawers, shifts }) {
   };
 
   const savePay = () => {
-    if (!pf.amount || !pf.voucherRef) return;
-    const amt = parseFloat(pf.amount);
+    if (payoutAmount === null || !pf.voucherRef) return;
+    const amt = payoutAmount;
     const txn = {
       id:`PC-${String(Math.floor(Math.random()*89999)+10000)}`,
       shiftId:activeShiftId(), date:nowStr(),
@@ -1672,8 +1685,8 @@ function PettyCashPage({ drawers, shifts }) {
   };
 
   const saveRep = () => {
-    if (!rf.amount) return;
-    const amt = parseFloat(rf.amount);
+    if (replenishAmount === null) return;
+    const amt = replenishAmount;
     const txn = {
       id:`PC-R${String(Math.floor(Math.random()*899)+100)}`,
       shiftId:activeShiftId(), date:nowStr(),
@@ -1816,7 +1829,7 @@ function PettyCashPage({ drawers, shifts }) {
 
         {/* ── LINK VOUCHER PAYOUT panel ── */}
         <DrawerPanel open={payOpen} onClose={()=>setPay(false)} title="Link Voucher Payout"
-          onSave={savePay} saveLabel="Deduct from Fund" saveDisabled={!pf.voucherRef||!pf.amount}>
+          onSave={savePay} saveLabel="Deduct from Fund" saveDisabled={!pf.voucherRef||payoutAmount===null}>
           <Alert type="info">
             The expense has already been recorded in Expense Voucher. Enter the voucher reference and amount here to deduct it from this petty cash fund balance.
           </Alert>
@@ -1829,10 +1842,10 @@ function PettyCashPage({ drawers, shifts }) {
               <Inp value={pf.amount} onChange={e=>setPF(p=>({...p,amount:e.target.value}))} placeholder="0.00" type="number" style={{ paddingLeft:22 }}/>
             </div>
           </Fld>
-          {pf.amount && parseFloat(pf.amount) > 0 && (
+          {payoutAmount !== null && (
             <div style={{ background:T.shiftBg, border:`1px solid ${T.shiftBdr}`, borderRadius:4, padding:"10px 12px", marginBottom:14, fontSize:12, color:T.shiftColor }}>
-              Fund balance after deduction: <strong>USD {(live.currentBalance - parseFloat(pf.amount)).toFixed(2)}</strong>
-              {live.currentBalance - parseFloat(pf.amount) <= live.replenishAt && (
+              Fund balance after deduction: <strong>USD {(live.currentBalance - payoutAmount).toFixed(2)}</strong>
+              {live.currentBalance - payoutAmount <= live.replenishAt && (
                 <div style={{ color:T.warnColor, marginTop:4 }}>⚠ This will bring balance below replenishment threshold.</div>
               )}
             </div>
@@ -1847,7 +1860,7 @@ function PettyCashPage({ drawers, shifts }) {
 
         {/* ── REPLENISH FUND panel ── */}
         <DrawerPanel open={repOpen} onClose={()=>setRep(false)} title="Replenish Fund"
-          onSave={saveRep} saveLabel="Confirm Replenishment" saveDisabled={!rf.amount}>
+          onSave={saveRep} saveLabel="Confirm Replenishment" saveDisabled={replenishAmount===null}>
           {isLow && <Alert type="warn">Balance below threshold ({fmt(live.replenishAt)}). Replenishment recommended.</Alert>}
           <Alert type="info">Suggested top-up: <strong>{fmt(live.openingAmt-live.currentBalance)}</strong> to restore to opening balance.</Alert>
           <Fld label="Amount to Add (USD)" req>
@@ -1856,9 +1869,9 @@ function PettyCashPage({ drawers, shifts }) {
               <Inp value={rf.amount} onChange={e=>setRF(p=>({...p,amount:e.target.value}))} placeholder="0.00" type="number" style={{ paddingLeft:22 }}/>
             </div>
           </Fld>
-          {rf.amount && parseFloat(rf.amount) > 0 && (
+          {replenishAmount !== null && (
             <div style={{ background:"#F0FDF4", border:"1px solid #A7F3D0", borderRadius:4, padding:"10px 12px", marginBottom:14, fontSize:12, color:"#065F46" }}>
-              Fund balance after replenishment: <strong>USD {(live.currentBalance + parseFloat(rf.amount)).toFixed(2)}</strong>
+              Fund balance after replenishment: <strong>USD {(live.currentBalance + replenishAmount).toFixed(2)}</strong>
             </div>
           )}
           <Fld label="Note / Auth Reference" hint="e.g. Approved by GM — ref INV-2024-089">
@@ -1938,7 +1951,7 @@ function PettyCashPage({ drawers, shifts }) {
 
       {/* ── CREATE FUND panel ── */}
       <DrawerPanel open={createOpen} onClose={()=>setCreate(false)} title="New Petty Cash Fund"
-        onSave={saveCreate} saveLabel="Create Fund" saveDisabled={!ff.name||!ff.openingAmt}>
+        onSave={saveCreate} saveLabel="Create Fund" saveDisabled={!ff.name||openingAmount===null}>
         <Sec label="Fund Details"/>
         <Fld label="Fund Name" req><Inp value={ff.name} onChange={e=>setFF(p=>({...p,name:e.target.value}))} placeholder="e.g. Front Desk Petty Fund"/></Fld>
         <R2>
