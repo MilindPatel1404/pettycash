@@ -591,7 +591,6 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   const activeShift = selected ? shifts.find(s => s.id===selected.currentShift) : null;
   const closeAccounting = buildCloseDrawerAccounting({ drawer:selected, shift:activeShift, txns, counts:ccyCounts, cashDrop:drop });
   const sysBal      = closeAccounting?.byCode?.USD?.expectedBal || 0;
-  const usdCounted  = closeAccounting?.byCode?.USD?.countedBal || sysBal;
   const mismatch    = !!closeAccounting?.byCode?.USD?.hasCount && closeAccounting.byCode.USD.variance !== 0;
   const variance    = closeAccounting?.byCode?.USD?.variance || 0;
 
@@ -881,9 +880,6 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                 {filteredShifts.length===0 ? (
                   <tr><td colSpan={13} style={{ padding:"32px", textAlign:"center", color:T.txtXlight }}>No closed drawer reports found.</td></tr>
                 ) : filteredShifts.map(s => {
-                  const usdCs   = (s.ccySummary||[]).find(x=>x.code==="USD");
-                  const fxCodes = (s.ccySummary||[]).filter(x=>x.code!=="USD");
-                  const isMulti = fxCodes.length > 0;
                   const amtReceived = s.ccySummary
                     ? s.ccySummary.map(cs=>`${cs.code} ${cs.totIn.toFixed(2)}`).join("\n")
                     : `USD ${(s.cashIn||0).toFixed(2)}`;
