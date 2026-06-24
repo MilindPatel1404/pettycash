@@ -597,7 +597,6 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
   const accounting  = activeShift && selected
     ? buildCloseDrawerAccounting({ drawer:selected, shift:activeShift, txns, ccyCounts, drop })
     : null;
-  const sysBal      = accounting?.byCode?.USD?.expected || 0;
   const variance    = accounting?.variance || 0;
   const mismatch    = ccyCounts["USD"] !== undefined && ccyCounts["USD"] !== "" && variance !== 0;
 
@@ -889,9 +888,6 @@ function CloseDrawerPage({ drawers, setDrawers, shifts, setShifts, txns }) {
                 {filteredShifts.length===0 ? (
                   <tr><td colSpan={13} style={{ padding:"32px", textAlign:"center", color:T.txtXlight }}>No closed drawer reports found.</td></tr>
                 ) : filteredShifts.map(s => {
-                  const usdCs   = (s.ccySummary||[]).find(x=>x.code==="USD");
-                  const fxCodes = (s.ccySummary||[]).filter(x=>x.code!=="USD");
-                  const isMulti = fxCodes.length > 0;
                   const amtReceived = s.ccySummary
                     ? s.ccySummary.map(cs=>`${cs.code} ${cs.totIn.toFixed(2)}`).join("\n")
                     : `USD ${(s.cashIn||0).toFixed(2)}`;
@@ -1174,12 +1170,6 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
 
   // All txns for this drawer's current shift
   const shiftTxns = activeShift ? txns.filter(t => t.shiftId===activeShift.id) : [];
-
-  // Determine all currencies present in this shift
-  const ccysInShift = [...new Set([
-    "USD",
-    ...shiftTxns.filter(t=>t.fxCcy).map(t=>t.fxCcy)
-  ])];
 
   // Filtered txns for the transaction table
   const visibleTxns = shiftTxns.filter(t => {
