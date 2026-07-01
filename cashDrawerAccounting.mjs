@@ -122,4 +122,3 @@ export function buildCloseDrawerAccounting({
     endingBalance: endingCcyBalances[BASE_CCY] || 0,
   };
 }
-

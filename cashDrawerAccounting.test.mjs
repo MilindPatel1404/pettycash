@@ -54,4 +54,3 @@ test("blank counts fall back to expected balances and preserve legacy drawer cur
   assert.deepEqual(result.countedByCode, { USD: 600, AUD: 115 });
   assert.deepEqual(result.endingCcyBalances, { USD: 600, AUD: 115 });
 });
-
