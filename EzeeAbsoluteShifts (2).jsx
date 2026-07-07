@@ -1568,8 +1568,7 @@ function AccessPage({ drawers, shifts, txns: txnsProp, setTxns: setTxnsProp }) {
      "out" — Voucher paid out → balance decreases
      "in"  — Replenishment   → balance increases
 ═══════════════════════════════════════════════════════════════════════════ */
-function PettyCashPage({ drawers, shifts }) {
-  const [funds, setFunds]       = useState(PETTY_FUNDS_INIT);
+function PettyCashPage({ drawers, shifts, funds, setFunds }) {
   const [detail, setDetail]     = useState(null);
   const [createOpen, setCreate] = useState(false);
   const [payOpen, setPay]       = useState(false);   // link voucher payout
@@ -1967,6 +1966,7 @@ export default function App() {
   const [drawers, setDrawers] = useState(DRAWERS_INIT);
   const [openTxns, setOpenTxns] = useState(OPEN_TXNS_INIT);
   const [shifts, setShifts]   = useState(SHIFTS_INIT);
+  const [pettyFunds, setPettyFunds] = useState(PETTY_FUNDS_INIT);
 
   return (
     <div style={{ fontFamily:"'Inter',system-ui,sans-serif", background:T.outerBg, minHeight:"100vh", display:"flex", flexDirection:"column" }}>
@@ -1998,7 +1998,7 @@ export default function App() {
           {page==="open"   && <OpenDrawerPage drawers={drawers} setDrawers={setDrawers} shifts={shifts} setShifts={setShifts}/>}
           {page==="close"  && <CloseDrawerPage drawers={drawers} setDrawers={setDrawers} shifts={shifts} setShifts={setShifts} txns={openTxns}/>}
           {page==="access" && <AccessPage drawers={drawers} shifts={shifts} txns={openTxns} setTxns={setOpenTxns}/>}
-          {page==="petty"  && <PettyCashPage drawers={drawers} shifts={shifts}/>}
+          {page==="petty"  && <PettyCashPage drawers={drawers} shifts={shifts} funds={pettyFunds} setFunds={setPettyFunds}/>}
         </div>
       </div>
     </div>
