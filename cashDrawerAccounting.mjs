@@ -28,11 +28,19 @@ const signedTxnAmountForCode = (txn, code) => {
 };
 
 export function buildCloseDrawerAccounting({ drawer, shift, txns = [], counts = {}, cashDrop = 0 }) {
+  const shiftTxns = txns.filter((txn) => txn.shiftId === shift?.id);
+  const legacyOpeningBalances = normalizeBalances(drawer?.ccyBalances || {});
+  Object.keys(legacyOpeningBalances).forEach((code) => {
+    if (code === BASE_CCY) return;
+    const liveChange = shiftTxns.reduce((sum, txn) => sum + signedTxnAmountForCode(txn, code), 0);
+    legacyOpeningBalances[code] = roundMoney(legacyOpeningBalances[code] - liveChange);
+  });
+
   const openingBalances = normalizeBalances(
     shift?.openingCcyBals && Object.keys(shift.openingCcyBals).length
       ? shift.openingCcyBals
       : shift
-        ? { [BASE_CCY]: shift.openingBal ?? 0 }
+        ? { ...legacyOpeningBalances, [BASE_CCY]: shift.openingBal ?? drawer?.balance ?? 0 }
         : drawer?.ccyBalances && Object.keys(drawer.ccyBalances).length
         ? drawer.ccyBalances
         : { [BASE_CCY]: drawer?.balance ?? 0 }
@@ -42,7 +50,6 @@ export function buildCloseDrawerAccounting({ drawer, shift, txns = [], counts = 
     openingBalances[BASE_CCY] = roundMoney(parseMoney(shift?.openingBal ?? drawer?.balance ?? 0));
   }
 
-  const shiftTxns = txns.filter((txn) => txn.shiftId === shift?.id);
   const txnCodes = shiftTxns.flatMap((txn) => txn.fxCcy ? [txn.fxCcy] : [BASE_CCY]);
   const countCodes = Object.keys(counts || {});
   const codes = [...new Set([BASE_CCY, ...Object.keys(openingBalances), ...txnCodes, ...countCodes])];
