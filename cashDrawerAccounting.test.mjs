@@ -55,6 +55,22 @@ test("blank counts fall back to the computed ledger balance", () => {
   assert.deepEqual(accounting.ccyBalances, { USD: 40 });
 });
 
+test("legacy shifts do not double-count a drawer's current balance", () => {
+  const accounting = buildCloseDrawerAccounting({
+    drawer: { balance: 680, ccyBalances: { USD: 680 } },
+    shift: { id: "SH-LEGACY", openingBal: 500 },
+    txns: [
+      { shiftId: "SH-LEGACY", amount: 80, ccy: "USD" },
+      { shiftId: "SH-LEGACY", amount: 55, ccy: "USD" },
+      { shiftId: "SH-LEGACY", amount: 45, ccy: "USD" },
+    ],
+    counts: { USD: "" },
+  });
+
+  assert.equal(accounting.closingBal, 680);
+  assert.deepEqual(accounting.ccyBalances, { USD: 680 });
+});
+
 test("cash drops are non-negative and only reduce USD ending balance", () => {
   const accounting = buildCloseDrawerAccounting({
     drawer: { ccyBalances: { USD: 50, EUR: 20 } },

@@ -31,9 +31,11 @@ export function buildCloseDrawerAccounting({ drawer, shift, txns = [], counts = 
   const openingBalances = normalizeBalances(
     shift?.openingCcyBals && Object.keys(shift.openingCcyBals).length
       ? shift.openingCcyBals
-      : drawer?.ccyBalances && Object.keys(drawer.ccyBalances).length
+      : shift
+        ? { [BASE_CCY]: shift.openingBal ?? 0 }
+        : drawer?.ccyBalances && Object.keys(drawer.ccyBalances).length
         ? drawer.ccyBalances
-        : { [BASE_CCY]: shift?.openingBal ?? drawer?.balance ?? 0 }
+        : { [BASE_CCY]: drawer?.balance ?? 0 }
   );
 
   if (!Object.prototype.hasOwnProperty.call(openingBalances, BASE_CCY)) {
